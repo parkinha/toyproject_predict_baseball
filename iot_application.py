@@ -1,102 +1,85 @@
-#iot application
+import selenium
+from selenium import webdriver
+from selenium.webdriver import ActionChains
+
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.support.ui import WebDriverWait
+
 from bs4 import BeautifulSoup
-import urllib.request as req
+
 import pandas as pd
-import tensorflow as tf
 import numpy as np
-tf.random.set_seed(777)#set_random_seed(777)
-x_data = []
-pd_count=0
-start_year=2014
-y_count=2023-start_year
 
-x_pd = pd.DataFrame(columns=("war", "score", "hit", "homerun", "runbat", "OPS"))
+import re
 
-for w in range(y_count-1):
-    year=start_year+w
-    print(year)
 
-    url ="http://www.statiz.co.kr/stat.php?opt=0&sopt=0&re=0&ys="+str(year)+"&ye="+str(year)+"&se=0&te=&tm=&ty=0&qu=auto&po=0&as=&ae=&hi=&un=&pl=&da=1&o1=WAR_ALL_ADJ&o2=TPA&de=1&lr=5&tr=&cv=&ml=1&sn=30&si=&cn="
+print("1팀 라인업을 타자, 투수 순으로 입력해주세요")
+#b1,b2,b3,b4,b5,b6,b7,b8,b9,pitcher1=input().split()
+print("2팀 라인업을 타자, 투수 순으로 입력해주세요")
+#a1,a2,a3,a4,a5,a6,a7,a8,a9,pitcher2=input().split()
+#print(b1,b2,b3,b4,b5,pitcher)
 
-    # urlopen()으로 데이터 가져오기, 에러가 나도 진행하기위해 try, except문 사용
-    try:
-        res = req.urlopen(url)
-    except:
-        print("500")
-        
-    # BeautifulSoup으로 분석하기 
-    soup = BeautifulSoup(res, "html.parser")
+#크롬드라이버로 연결 path를 내걸로 수정해야함
+driver = webdriver.Chrome(executable_path = "C:/Users/Administrator/Downloads/chromedriver_win32/chromedriver.exe") #"C:/Users/희준/downloads/chromedriver_win32/chromedriver.exe")
+
+
+#YS=시즌시작년도 YE=시즌종료년도SN=한페이지에 몇명선수 불러올지 pa=몇번째선수부터 불러올지
+for i in range(4):  
+    #롯데 타자들 있는 url로 바꿔줄것
+    url = 'http://www.statiz.co.kr/stat.php?mid=stat&re=0&ys=2022&ye=2022&sn=100&pa={}'.format(i*100)
+    driver.get(url)
+    #설정시간동안 로딩되지않으면 에러가 발생함
+    driver.implicitly_wait(time_to_wait=5)
+    #find_element(By.XPATH)는 xpath 경로를 사용하여 원하는 element를 가져오는 함수이다. 원하는 선수들의 성적이 적힌 테이블은 mytable이란 아이디에 기록이 되어있다. 그 중에서도 tbody라는 요소에 표 형식으로 기록이 되어있다. 즉, 선수들의 정보가 담긴 tbody란 표를 통째로 가져온다
+    html = driver.find_element(By.XPATH,'//*[@id="mytable"]/tbody').get_attribute("innerHTML")
+    #beautiful soup 객체에 넣어줌으로써 태그검색을 쉽게 만듬
+    soup = BeautifulSoup(html, 'html.parser')
     
-    #페이지에서 보는 코드와 soup로 추출한 코드가 달라 직접 출력해서 태그를 체크했다.
-    #print(soup)
+    temp = [i.text.strip() for i in soup.findAll("tr")] #tr태그에서 text만 저장하고 공백 제거
+    temp = pd.Series(temp) #list 객체를 series 객체로 변경
     
-    # 원하는 데이터 추출하기 
-    a_list = soup.select("#mytable > tr")
-    #print(len(a_list))
+    #중간중간에 '순'이나 'WAR'로 시작하는 행들이 있는데 이를 제거해준다
+    #그리고 index를 reset
+    temp = temp[~temp.str.match("[순W]")].reset_index(drop=True)
     
-    i=0
-    j=0
-    for a in a_list:
-        i = i+1
-        #8개 구단 내에서의 정보
-        if i>7 and i<16:
-            #print(a)
-            b_list = a.select("td")
-            #print(b_list)
-            j=0
-            for b in b_list:
-                j = j+1
-                #여러가지 데이터중 필요한 war, 득점, 안타, 홈런, 타점, OPS 정보를 얻기위한 코드이다.
-                if j==4 or j==8 or j==9 or j==12 or j==14 or j==27:
-                    c_list = b.select("font > span")
-                    for c in c_list:
-                        #print(c.string)
-                        x_data.append(c.string)
-                        if j==27:
-                            x_data[5] = x_data[5].split('.')[1];
-                    
-            #print(x_data)
-            x_pd.loc[pd_count] = [x_data[q] for q in range(6)]
-            pd_count = pd_count+1   
-            x_data=[]
+    #띄어쓰기 기준으로 분류해서 데이터프레임으로 만들기
+    temp = temp.apply(lambda x: pd.Series(x.split(' ')))
+    
+    #선수 팀 정보 이후 첫번째 기록과는 space 하나로 구분, 그 이후로는 space 두개로 구분이 되어 있음 
+    #그래서 space 하나로 구분을 시키면, 빈 column들이 존재 하는데, 해당 column들 제거 
+    temp = temp.replace('', np.nan).dropna(axis=1) 
+    
+    #WAR이 두 열이나 존재해서 처음 나오는 WAR열을 삭제. 1열에 있음
+    temp = temp.drop(1,axis=1)
+    
+    #선수 이름 앞의 숫자 제거
+    temp[0] = temp[0].str.replace("^\d+", "")
+    
+    
+    if i ==0:
+        result = temp
+    else:
+        result = pd.concat([result,temp]) #result.append(temp)
+        result = result.reset_index(drop=True)
+    print(i, "완료")
+    
+columns = ['선수'] + [i.text for i in soup.findAll("tr")[0].findAll("th")][4:-3] + ['타율','출루율','장타율','OPS','wOBA','wRC+','WAR+','WPA']
+result.columns = columns
+print('a')
+driver.close()
 
-
-print(x_pd)
-
-#추출한 데이터로 작성한 DataFrame을 csv파일로 저장
-x_pd.to_csv(r'C:\Users\Administrator\iotapplication_project\baseball_data.csv', mode='w', header=True)
-
-
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
-
-
-xy = np.loadtxt(r'C:\Users\Administrator\iotapplication_project\baseball_data.csv', delimiter=',', dtype=np.float32,skiprows=0)
-
-x_data = xy[:, 0:-1]
-y_data = xy[:, [-1]]
-
-X = tf.placeholder(tf.float32, shape=[None, 6])
-Y = tf.placeholder(tf.float32, shape=[None, 1])
-
-W = tf.Variable(tf.random_normal([6, 1]), name='weight')
-b = tf.Variable(tf.random_normal([1]), name='bias')
-
-hypothesis = tf.matmul(X, W) + b
-
-cost = tf.reduce_mean(tf.square(hypothesis - Y))
-
-optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01)
-train = optimizer.minimize(cost)
-
-sess = tf.Session()
-
-sess.run(tf.global_variables_initializer())
-
-for step in range(1000001):
-    cost_val, hy_val, _ = sess.run(
-        [cost, hypothesis, train], feed_dict={X: x_data, Y: y_data})
-    if step % 10000 == 0:
-        print(step, "Cost: ", cost_val)
-    if step % 100000 == 0:
-        print("\nPrediction:\n", hy_val)
+#선수 이름을 슬라이싱하여 새로운 열로 추가
+result['이름'] = result['선수'].map(lambda x:x[:x.find('22')])
+#선수 포지션을 슬라이싱하여 새로운 열로 추가
+result['포지션'] = result['선수'].map(lambda x:x[x.find('22')+3:])
+print('b')
+# 투수교체나 대타 기용 과정에서 타석에 들어선 것으로 처리되는 투수들이 간혹 있음
+# 이 투수들의 row를 삭제해주기 위한 과정
+pitcher_index = result[result['포지션']=='P'].index
+result.drop(pitcher_index, inplace=True)
+print(result)
+result.to_excel('baseball.xlsx')
